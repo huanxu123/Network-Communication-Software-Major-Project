@@ -21,7 +21,7 @@ public class ConsoleUI implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(ConsoleUI.class);
 
     private final Scanner scanner = new Scanner(System.in);
-    private final MessageHandler messageHandler = new MessageHandler();
+    private final MessageHandler messageHandler = new MessageHandler(System.out::println);
     private final GroupChatService groupChatService = new GroupChatService();
     private final CallManager callManager = new CallManager();
 
@@ -40,9 +40,11 @@ public class ConsoleUI implements Runnable {
                     case "2" -> unregister();
                     case "3" -> sendMessage();
                     case "4" -> showChats();
-                    case "5" -> createGroup();
-                    case "6" -> groupBroadcast();
+                    case "5" -> startCall();
+                    case "6" -> hangupCall();
                     case "7" -> listCalls();
+                    case "8" -> createGroup();
+                    case "9" -> groupBroadcast();
                     case "0" -> exit = true;
                     default -> System.out.println("未知选项");
                 }
@@ -59,9 +61,11 @@ public class ConsoleUI implements Runnable {
         System.out.println("2. 注销");
         System.out.println("3. 发送文本消息");
         System.out.println("4. 查看会话记录");
-        System.out.println("5. 创建群组");
-        System.out.println("6. 群发消息");
+        System.out.println("5. 发起语音呼叫");
+        System.out.println("6. 挂断呼叫");
         System.out.println("7. 查看呼叫状态");
+        System.out.println("8. 创建群组");
+        System.out.println("9. 群发消息");
         System.out.println("0. 退出");
         System.out.print("请选择: ");
     }
@@ -148,9 +152,27 @@ public class ConsoleUI implements Runnable {
         groupChatService.broadcastMessage(userAgent, groupId, text);
     }
 
+    private void startCall() throws Exception {
+        requireAgent();
+        System.out.print("目标 SIP URI: ");
+        String target = scanner.nextLine().trim();
+        userAgent.startCall(target);
+    }
+
+    private void hangupCall() throws SipException {
+        requireAgent();
+        System.out.print("挂断对象 SIP URI: ");
+        String target = scanner.nextLine().trim();
+        userAgent.hangup(target);
+    }
+
     private void listCalls() {
         callManager.listSessions().forEach(session ->
-                System.out.printf("呼叫 %s -> %s 状态 %s%n", session.getId(), session.getRemoteUri(), session.getState()));
+                System.out.printf("[%s] %s -> %s 状态 %s%n",
+                        session.isIncoming() ? "来电" : "去电",
+                        session.getId(),
+                        session.getRemoteUri(),
+                        session.getState()));
     }
 
     private void requireAgent() {

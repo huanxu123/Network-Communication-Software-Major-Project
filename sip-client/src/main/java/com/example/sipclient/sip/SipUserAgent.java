@@ -8,6 +8,7 @@ import gov.nist.javax.sip.clientauthutils.AuthenticationHelper;
 import gov.nist.javax.sip.clientauthutils.UserCredentials;
 
 import javax.sip.ClientTransaction;
+import javax.sip.Dialog;
 import javax.sip.IOExceptionEvent;
 import javax.sip.ListeningPoint;
 import javax.sip.ObjectInUseException;
@@ -25,6 +26,7 @@ import javax.sip.ViaHeader;
 import javax.sip.address.Address;
 import javax.sip.address.AddressFactory;
 import javax.sip.address.SipURI;
+import javax.sip.address.URI;
 import javax.sip.header.CSeqHeader;
 import javax.sip.header.CallIdHeader;
 import javax.sip.header.ContactHeader;
@@ -43,8 +45,10 @@ import java.text.ParseException;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -73,6 +77,7 @@ public final class SipUserAgent implements SipListener {
     private final ListeningPoint listeningPoint;
     private final ContactHeader contactHeader;
     private final AuthenticationHelper authenticationHelper;
+    private final Map<String, Dialog> dialogs = new ConcurrentHashMap<>();
 
     private MessageHandler messageHandler;
     private CallManager callManager;
@@ -245,6 +250,39 @@ public final class SipUserAgent implements SipListener {
         }
     }
 
+    public void startCall(String targetUri) throws SipException {
+        Objects.requireNonNull(targetUri, "targetUri");
+        try {
+            Request invite = createInviteRequest(targetUri);
+            if (callManager != null) {
+                callManager.startOutgoing(normalizeUri(targetUri));
+            }
+            ClientTransaction transaction = sipProvider.getNewClientTransaction(invite);
+            transaction.sendRequest();
+        } catch (ParseException ex) {
+            throw new IllegalArgumentException("目标 URI 不合法", ex);
+        }
+    }
+
+    public void hangup(String targetUri) throws SipException {
+        Objects.requireNonNull(targetUri, "targetUri");
+        String normalized = normalizeUri(targetUri);
+        Dialog dialog = dialogs.get(normalized);
+        if (dialog == null) {
+            if (callManager != null) {
+                callManager.terminateLocal(normalized);
+            }
+            return;
+        }
+        Request bye = dialog.createRequest(Request.BYE);
+        ClientTransaction transaction = sipProvider.getNewClientTransaction(bye);
+        dialog.sendRequest(transaction);
+        dialogs.remove(normalized);
+        if (callManager != null) {
+            callManager.terminateLocal(normalized);
+        }
+    }
+
     private boolean sendRegister(int expires, Duration timeout) throws SipException, InterruptedException {
         Objects.requireNonNull(timeout, "timeout");
         if (timeout.isNegative()) {
@@ -306,6 +344,52 @@ public final class SipUserAgent implements SipListener {
         }
     }
 
+    private Request createInviteRequest(String targetUri) throws ParseException, SipException {
+        SipURI requestUri = (SipURI) addressFactory.createURI(targetUri);
+
+        SipURI fromUri = addressFactory.createSipURI(username, registrarHost);
+        Address fromAddress = addressFactory.createAddress(fromUri);
+        FromHeader fromHeader = headerFactory.createFromHeader(fromAddress, generateTag());
+
+        Address toAddress = addressFactory.createAddress(requestUri);
+        ToHeader toHeader = headerFactory.createToHeader(toAddress, null);
+
+        List<ViaHeader> viaHeaders = Collections.singletonList(
+                headerFactory.createViaHeader(listeningPoint.getIPAddress(),
+                        listeningPoint.getPort(), transport, null));
+
+        CallIdHeader callIdHeader = sipProvider.getNewCallId();
+        CSeqHeader cSeqHeader = headerFactory.createCSeqHeader(cseq.getAndIncrement(), Request.INVITE);
+        MaxForwardsHeader maxForwardsHeader = headerFactory.createMaxForwardsHeader(70);
+
+        Request request = messageFactory.createRequest(
+                requestUri,
+                Request.INVITE,
+                callIdHeader,
+                cSeqHeader,
+                fromHeader,
+                toHeader,
+                viaHeaders,
+                maxForwardsHeader
+        );
+
+        request.addHeader(contactHeader);
+        ContentTypeHeader contentTypeHeader = headerFactory.createContentTypeHeader("application", "sdp");
+        request.setContent(buildPlaceholderSdp(), contentTypeHeader);
+
+        return request;
+    }
+
+    private String buildPlaceholderSdp() {
+        return "v=0\r\n" +
+                "o=" + username + " 0 0 IN IP4 " + listeningPoint.getIPAddress() + "\r\n" +
+                "s=Project-SIP-Client\r\n" +
+                "c=IN IP4 " + listeningPoint.getIPAddress() + "\r\n" +
+                "t=0 0\r\n" +
+                "m=audio " + listeningPoint.getPort() + " RTP/AVP 0\r\n" +
+                "a=rtpmap:0 PCMU/8000\r\n";
+    }
+
     private void handleIncomingMessage(RequestEvent event) {
         try {
             ServerTransaction transaction = ensureServerTransaction(event);
@@ -324,6 +408,7 @@ public final class SipUserAgent implements SipListener {
     }
 
     private void handleIncomingInvite(RequestEvent event) {
+        String remote = extractFromUri(event.getRequest());
         try {
             ServerTransaction transaction = ensureServerTransaction(event);
             Response ringing = messageFactory.createResponse(Response.RINGING, event.getRequest());
@@ -335,7 +420,11 @@ public final class SipUserAgent implements SipListener {
             transaction.sendResponse(ok);
 
             if (callManager != null) {
-                callManager.acceptIncoming(extractFromUri(event.getRequest()));
+                callManager.acceptIncoming(remote);
+            }
+            Dialog dialog = transaction.getDialog();
+            if (dialog != null) {
+                dialogs.put(remote, dialog);
             }
         } catch (Exception ex) {
             try {
@@ -356,8 +445,21 @@ public final class SipUserAgent implements SipListener {
         } catch (Exception ex) {
             System.err.println("Failed to acknowledge BYE: " + ex.getMessage());
         }
+        String remote = extractFromUri(event.getRequest());
+        dialogs.remove(remote);
         if (callManager != null) {
-            callManager.terminateByRemote(extractFromUri(event.getRequest()));
+            callManager.terminateByRemote(remote);
+        }
+    }
+
+    private void handleAck(RequestEvent event) {
+        String remote = extractFromUri(event.getRequest());
+        Dialog dialog = event.getDialog();
+        if (dialog != null) {
+            dialogs.put(remote, dialog);
+        }
+        if (callManager != null) {
+            callManager.markActive(remote);
         }
     }
 
@@ -374,7 +476,15 @@ public final class SipUserAgent implements SipListener {
         if (fromHeader == null) {
             return "unknown";
         }
-        return fromHeader.getAddress().getURI().toString();
+        return normalizeUri(fromHeader.getAddress().getURI());
+    }
+
+    private String extractToUri(Response response) {
+        ToHeader toHeader = (ToHeader) response.getHeader(ToHeader.NAME);
+        if (toHeader == null) {
+            return "unknown";
+        }
+        return normalizeUri(toHeader.getAddress().getURI());
     }
 
     private ContactHeader buildContactHeader(String localIp, int localPort) throws ParseException {
@@ -391,6 +501,24 @@ public final class SipUserAgent implements SipListener {
         return Long.toHexString(System.currentTimeMillis());
     }
 
+    private String normalizeUri(String rawUri) {
+        try {
+            return ((SipURI) addressFactory.createURI(rawUri)).toString();
+        } catch (ParseException ex) {
+            return rawUri;
+        }
+    }
+
+    private String normalizeUri(URI uri) {
+        if (uri == null) {
+            return "unknown";
+        }
+        if (uri instanceof SipURI sipURI) {
+            return sipURI.toString();
+        }
+        return uri.toString();
+    }
+
     @Override
     public void processRequest(RequestEvent requestEvent) {
         Request request = requestEvent.getRequest();
@@ -401,17 +529,44 @@ public final class SipUserAgent implements SipListener {
             handleIncomingInvite(requestEvent);
         } else if (Request.BYE.equals(method)) {
             handleIncomingBye(requestEvent);
+        } else if (Request.ACK.equals(method)) {
+            handleAck(requestEvent);
         }
     }
 
     @Override
     public void processResponse(ResponseEvent responseEvent) {
         Response response = responseEvent.getResponse();
-        int status = response.getStatusCode();
+        String method = ((CSeqHeader) response.getHeader(CSeqHeader.NAME)).getMethod();
 
-        if (!Request.REGISTER.equals(((CSeqHeader) response.getHeader(CSeqHeader.NAME)).getMethod())) {
-            return;
+        if (Request.REGISTER.equals(method)) {
+            handleRegisterResponse(responseEvent);
+        } else if (Request.INVITE.equals(method)) {
+            handleInviteResponse(responseEvent);
         }
+    }
+
+    private int getExpiresFromResponse(Response response) {
+        ExpiresHeader expiresHeader = (ExpiresHeader) response.getHeader(ExpiresHeader.NAME);
+        if (expiresHeader != null) {
+            return expiresHeader.getExpires();
+        }
+        ContactHeader responseContact = (ContactHeader) response.getHeader(ContactHeader.NAME);
+        if (responseContact != null && responseContact.getExpires() != -1) {
+            return responseContact.getExpires();
+        }
+        return registered ? DEFAULT_EXPIRES_SECONDS : 0;
+    }
+
+    @Override
+    public void processTimeout(TimeoutEvent timeoutEvent) {
+        registered = false;
+        registrationLatch.countDown();
+    }
+
+    private void handleRegisterResponse(ResponseEvent responseEvent) {
+        Response response = responseEvent.getResponse();
+        int status = response.getStatusCode();
 
         if (status == Response.UNAUTHORIZED || status == Response.PROXY_AUTHENTICATION_REQUIRED) {
             try {
@@ -440,22 +595,37 @@ public final class SipUserAgent implements SipListener {
         }
     }
 
-    private int getExpiresFromResponse(Response response) {
-        ExpiresHeader expiresHeader = (ExpiresHeader) response.getHeader(ExpiresHeader.NAME);
-        if (expiresHeader != null) {
-            return expiresHeader.getExpires();
-        }
-        ContactHeader responseContact = (ContactHeader) response.getHeader(ContactHeader.NAME);
-        if (responseContact != null && responseContact.getExpires() != -1) {
-            return responseContact.getExpires();
-        }
-        return registered ? DEFAULT_EXPIRES_SECONDS : 0;
-    }
+    private void handleInviteResponse(ResponseEvent responseEvent) {
+        Response response = responseEvent.getResponse();
+        int status = response.getStatusCode();
+        String remote = extractToUri(response);
 
-    @Override
-    public void processTimeout(TimeoutEvent timeoutEvent) {
-        registered = false;
-        registrationLatch.countDown();
+        if (status >= 100 && status < 200) {
+            System.out.println("对方振铃中：" + remote + "，状态码 " + status);
+            return;
+        }
+
+        if (status >= 200 && status < 300) {
+            Dialog dialog = responseEvent.getDialog();
+            if (dialog != null) {
+                dialogs.put(remote, dialog);
+                try {
+                    Request ack = dialog.createAck(((CSeqHeader) response.getHeader(CSeqHeader.NAME)).getSeqNumber());
+                    dialog.sendAck(ack);
+                } catch (SipException ex) {
+                    System.err.println("Failed to send ACK: " + ex.getMessage());
+                }
+            }
+            if (callManager != null) {
+                callManager.markActive(remote);
+            }
+        } else if (status >= 400) {
+            System.err.println("呼叫失败 (status=" + status + ")");
+            if (callManager != null) {
+                callManager.terminateLocal(remote);
+            }
+            dialogs.remove(remote);
+        }
     }
 
     @Override

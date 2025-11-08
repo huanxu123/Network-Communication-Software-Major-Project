@@ -1,51 +1,88 @@
 package com.example.sipclient.call;
 
+import com.example.sipclient.media.AudioSession;
+import com.example.sipclient.media.MediaSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
- * 简化的呼叫管理器，负责记录当前进行中的会话状态，方便后续与媒体层对接。
+ * 管理当前会话的状态，并在通话建立/结束时拉起或关闭媒体会话。
  */
 public class CallManager {
 
     private static final Logger log = LoggerFactory.getLogger(CallManager.class);
 
-    private final Map<String, CallSession> activeSessions = new ConcurrentHashMap<>();
+    private final Map<String, CallSession> sessionsById = new ConcurrentHashMap<>();
+    private final Map<String, String> remoteIndex = new ConcurrentHashMap<>();
+    private final Supplier<MediaSession> mediaSupplier;
+
+    public CallManager() {
+        this(AudioSession::new);
+    }
+
+    public CallManager(Supplier<MediaSession> mediaSupplier) {
+        this.mediaSupplier = mediaSupplier == null ? AudioSession::new : mediaSupplier;
+    }
 
     public CallSession startOutgoing(String targetUri) {
-        CallSession session = new CallSession(targetUri);
+        CallSession session = new CallSession(targetUri, false);
         session.markRinging();
-        activeSessions.put(session.getId(), session);
+        registerSession(session);
         log.info("已发起到 {} 的呼叫，sessionId={}", targetUri, session.getId());
         return session;
     }
 
     public CallSession acceptIncoming(String fromUri) {
-        CallSession session = new CallSession(fromUri);
-        session.markActive();
-        activeSessions.put(session.getId(), session);
-        log.info("自动接听来自 {} 的呼叫，sessionId={}", fromUri, session.getId());
+        CallSession session = new CallSession(fromUri, true);
+        session.markRinging();
+        registerSession(session);
+        log.info("收到来自 {} 的来电，sessionId={}", fromUri, session.getId());
         return session;
     }
 
-    public void terminateByRemote(String remoteUri) {
+    public void markActive(String remoteUri) {
         findByRemote(remoteUri).ifPresent(session -> {
-            session.terminate();
-            activeSessions.remove(session.getId());
-            log.info("呼叫 {} 已结束", session.getId());
+            if (session.getState() != CallSession.State.ACTIVE) {
+                session.markActive();
+                session.startMedia(mediaSupplier.get());
+                log.info("呼叫 {} 已建立媒体通道", session.getId());
+            }
         });
     }
 
-    public Collection<CallSession> listSessions() {
-        return activeSessions.values();
+    public void terminateByRemote(String remoteUri) {
+        findByRemote(remoteUri).ifPresent(this::removeSession);
     }
 
-    private Optional<CallSession> findByRemote(String remoteUri) {
-        return activeSessions.values().stream().filter(s -> s.getRemoteUri().equals(remoteUri)).findFirst();
+    public void terminateLocal(String remoteUri) {
+        findByRemote(remoteUri).ifPresent(this::removeSession);
+    }
+
+    public Collection<CallSession> listSessions() {
+        return List.copyOf(sessionsById.values());
+    }
+
+    public Optional<CallSession> findByRemote(String remoteUri) {
+        String sessionId = remoteIndex.get(remoteUri);
+        return sessionId == null ? Optional.empty() : Optional.ofNullable(sessionsById.get(sessionId));
+    }
+
+    private void registerSession(CallSession session) {
+        sessionsById.put(session.getId(), session);
+        remoteIndex.put(session.getRemoteUri(), session.getId());
+    }
+
+    private void removeSession(CallSession session) {
+        session.terminate();
+        sessionsById.remove(session.getId());
+        remoteIndex.remove(session.getRemoteUri());
+        log.info("呼叫 {} 已结束", session.getId());
     }
 }

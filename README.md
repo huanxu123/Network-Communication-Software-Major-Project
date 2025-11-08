@@ -8,8 +8,8 @@
    - `chat` 目录封装 `MessageHandler`、`ChatSession`，用于记录对话。  
 
 2. **阶段 2 – 呼叫与媒体骨架**  
-   - `call.CallManager`、`CallSession` 追踪 INVITE/BYE 流程，`SipUserAgent` 能够自动应答来电。  
-   - `media.AudioSession`/`MediaSession` 预留音频接口，当前用日志模拟媒体层。  
+   - `SipUserAgent.startCall()/hangup()` 实现 INVITE/ACK/BYE 流程，可发起/挂断点对点语音。  
+   - `call.CallManager`/`CallSession` 结合 `media.AudioSession` 协调占位媒体会话，并在建立/结束呼叫时自动启停。  
 
 3. **阶段 3 – 群聊/多方通话准备**  
    - `chat.GroupChatService` 管理群组、复用 MESSAGE 做群发。  
@@ -51,6 +51,11 @@ mvn -q exec:java -Dexec.mainClass=com.example.sipclient.SipClientApplication
 1. 完成上述注册后，选择菜单 `3` 输入目标 SIP URI 与文本，即可发送 MESSAGE。  
 2. 当对端向本客户端发送文本时，`MessageHandler` 会立即在控制台打印 `收到来自 ...` 字样并写入会话记录；无需额外操作即可实时查看。  
 3. 使用菜单 `4` 可再次查看最近 20 条对话内容，满足“接收并打印文本消息”的验收要求。  
+
+#### 阶段 2 操作流程
+1. 注册完成后，选择菜单 `5` 输入对端 SIP URI，客户端会立即发送 INVITE 并在控制台提示振铃状态。  
+2. 被叫端（或模拟终端）应答后，客户端自动发送 ACK，并在控制台 `查看呼叫状态`（菜单 `7`）中显示为 `ACTIVE`；此时 `AudioSession` 会输出“音频会话启动”日志，表示占位媒体链路已建立。  
+3. 若需要结束通话，选择菜单 `6` 输入同一 SIP URI，客户端将通过 BYE 挂断并停止媒体会话；同样地，若对端主动发送 BYE，控制台会收到提示并更新状态。  
 
 ### 3. 下一步建议
 1. **真实消息与群聊**：对接 MSS 测试环境，补齐 MESSAGE 可靠性（重传、内容类型、群聊路由）。
