@@ -188,16 +188,67 @@ public final class SipUserAgent implements SipListener {
      * Shuts down the SIP stack and releases sockets.
      */
     public void shutdown() {
-        sipProvider.removeSipListener(this);
-        try {
-            sipStack.deleteSipProvider(sipProvider);
-        } catch (Exception ignored) {
+        System.out.println("[SipUserAgent] 关闭 SIP 连接...");
+        
+        // 1. 先尝试注销（如果已注册）
+        if (registered) {
+            try {
+                System.out.println("[SipUserAgent] 正在向服务器发送注销请求...");
+                unregister(java.time.Duration.ofSeconds(2)); // 2秒超时
+                System.out.println("[SipUserAgent] 已向服务器发送注销请求");
+            } catch (Exception e) {
+                System.err.println("[SipUserAgent] 注销失败（继续关闭）: " + e.getMessage());
+            }
         }
+        
+        // 2. 标记为未注册
+        registered = false;
+        
         try {
-            sipStack.deleteListeningPoint(listeningPoint);
-        } catch (Exception ignored) {
+            // 1. 移除监听器
+            if (sipProvider != null) {
+                sipProvider.removeSipListener(this);
+                System.out.println("[SipUserAgent] 已移除 SIP 监听器");
+            }
+        } catch (Exception e) {
+            System.err.println("[SipUserAgent] 移除监听器失败: " + e.getMessage());
         }
-        sipStack.stop();
+        
+        try {
+            // 2. 删除 ListeningPoint (先删除ListeningPoint释放端口)
+            if (listeningPoint != null && sipStack != null) {
+                int port = listeningPoint.getPort();
+                sipStack.deleteListeningPoint(listeningPoint);
+                System.out.println("[SipUserAgent] 已删除 ListeningPoint (端口: " + port + ")");
+            }
+        } catch (Exception e) {
+            System.err.println("[SipUserAgent] 删除 ListeningPoint 失败: " + e.getMessage());
+        }
+        
+        try {
+            // 3. 删除 SipProvider
+            if (sipProvider != null && sipStack != null) {
+                sipStack.deleteSipProvider(sipProvider);
+                System.out.println("[SipUserAgent] 已删除 SipProvider");
+            }
+        } catch (Exception e) {
+            System.err.println("[SipUserAgent] 删除 SipProvider 失败: " + e.getMessage());
+        }
+        
+        // 4. 异步停止 SIP 栈（避免阻塞）
+        if (sipStack != null) {
+            new Thread(() -> {
+                try {
+                    System.out.println("[SipUserAgent] 正在异步停止 SIP 栈...");
+                    sipStack.stop();
+                    System.out.println("[SipUserAgent] SIP 栈已停止");
+                } catch (Exception e) {
+                    System.err.println("[SipUserAgent] 停止 SIP 栈失败: " + e.getMessage());
+                }
+            }, "SipStack-Shutdown").start();
+        }
+        
+        System.out.println("[SipUserAgent] SIP 连接已关闭，端口已释放");
     }
 
     public boolean isRegistered() {

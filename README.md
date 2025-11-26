@@ -43,6 +43,7 @@
 | 服务端框架 | Spring Boot | 3.2.5 | REST API 和业务逻辑 |
 | 安全认证 | JWT | 0.12.3 | Token 认证 |
 | 客户端 UI | JavaFX | 21.0.1 | 现代化桌面 GUI ✅ 已实现 |
+| 本地存储 | SQLite JDBC | 3.45.0.0 | 聊天记录本地缓存 ✅ 已实现 |
 | 日志框架 | SLF4J + Logback | 2.0.12 / 1.5.6 | 日志管理 |
 | 测试框架 | JUnit 5 + Mockito | 5.10.2 / 5.11.0 | 单元测试 |
 
@@ -77,18 +78,25 @@ Project/
 │   │       │   │   ├── LoginController.java
 │   │       │   │   ├── MainController.java
 │   │       │   │   ├── IncomingCallController.java
-│   │       │   │   └── CallController.java
-│   │       │   └── model/                 # 数据模型
-│   │       │       ├── Contact.java
-│   │       │       └── Message.java
+│   │       │   │   ├── CallController.java
+│   │       │   │   └── SettingsController.java     # ✅ 设置界面
+│   │       │   ├── model/                 # 数据模型
+│   │       │   │   ├── Contact.java
+│   │       │   │   └── Message.java
+│   │       │   └── storage/               # ✅ 本地存储
+│   │       │       └── LocalDatabase.java         # SQLite 数据库管理
 │   │       └── api/                  # 与服务器通信
 │   │           └── ServerApiClient.java
 │   ├── src/main/resources/
-│   │   └── fxml/                     # JavaFX 界面文件
-│   │       ├── login.fxml                 # 登录界面
-│   │       ├── main.fxml                  # 主界面
-│   │       ├── incoming_call.fxml         # 来电弹窗
-│   │       └── call.fxml                  # 通话窗口
+│   │   ├── fxml/                     # JavaFX 界面文件
+│   │   │   ├── login.fxml                 # 登录界面
+│   │   │   ├── main.fxml                  # 主界面
+│   │   │   ├── incoming_call.fxml         # 来电弹窗
+│   │   │   ├── call.fxml                  # 通话窗口
+│   │   │   └── settings.fxml              # ✅ 设置界面
+│   │   └── css/                      # ✅ 主题样式
+│   │       ├── light-theme.css            # 浅色主题
+│   │       └── dark-theme.css             # 深色主题
 │   └── pom.xml
 │
 ├── admin-server/                     # Java 业务服务器模块
@@ -202,7 +210,12 @@ mvn javafx:run
 - 🎨 现代化界面设计（类微信风格）
 - 💬 即时消息收发（蓝色/灰色气泡）
 - 📞 语音呼叫发起/接听/拒接
-- 👥 联系人列表管理
+- 👥 联系人列表管理（添加/编辑/删除）✅ 新增
+- 🔍 联系人和消息搜索 ✅ 新增
+- 😀 表情符号支持 ✅ 新增
+- 🌗 主题切换（浅色/深色）✅ 新增
+- ⚙️ 设置界面（通知/音量/音频设备）✅ 新增
+- 💾 本地聊天记录存储（SQLite）✅ 新增
 - 🔔 来电弹窗提醒
 - ⏱️ 通话计时器
 - 📊 未读消息徽章
@@ -338,16 +351,36 @@ curl http://localhost:8081/api/stats
   - 最后一条消息预览
   - 消息时间戳
   - 未读消息红色徽章
+  - ➕ 快速添加联系人 ✅ 新增
+  - 🔍 实时搜索（昵称/ID/消息）✅ 新增
+  - 右键菜单（编辑/删除）✅ 新增
   
 - **聊天窗口**
   - 消息气泡样式（发送=蓝色，接收=灰色）
   - 自动滚动到最新消息
   - 消息时间显示
   - Enter 发送，Shift+Enter 换行
+  - 😀 表情符号选择器 ✅ 新增
+  - 🔍 消息历史搜索 ✅ 新增
+  - 📎 文件附件（占位）
   
 - **语音通话**
   - 点击按钮发起呼叫
   - 自动打开通话窗口
+  
+- **设置功能** ✅ 新增
+  - 通知开关（桌面通知/提示音）
+  - 主题切换（浅色/深色）
+  - 音量调节
+  - 音频设备选择
+  - 开机自启动
+  - 聊天记录保存
+  
+- **数据持久化** ✅ 新增
+  - SQLite 本地数据库
+  - 联系人自动保存
+  - 聊天记录本地缓存
+  - 启动时自动加载历史
 
 #### 3. 来电弹窗
 - 模态对话框
@@ -361,6 +394,14 @@ curl http://localhost:8081/api/stats
 - 实时通话计时（HH:MM:SS）
 - 挂断按钮（红色）
 - 静音按钮（待实现）
+
+#### 5. 设置界面 ✅ 新增
+- 通知设置（启用桌面通知、提示音）
+- 外观设置（主题切换：浅色/深色）
+- 音频设置（音量滑块、设备选择）
+- 其他设置（开机自启动、保存聊天记录）
+- 重置按钮（恢复默认设置）
+- 使用 Java Preferences API 持久化配置
 
 ### 测试步骤
 
@@ -480,47 +521,54 @@ sip-client/src/main/
 
 **核心类说明：**
 
-- **SipClientApp** - JavaFX 应用入口
+- **SipClientApp** - JavaFX 应用入口，主题管理
 - **LoginController** - 处理登录表单、异步注册、跳转主界面
 - **MainController** - 管理联系人列表、聊天窗口、消息收发、呼叫发起
+  - ✅ 新增：联系人搜索、添加、编辑、删除
+  - ✅ 新增：消息搜索、表情支持
+  - ✅ 新增：数据库集成（SQLite）
 - **IncomingCallController** - 处理来电接听/拒接
 - **CallController** - 管理通话状态、计时器、挂断操作
+- **SettingsController** ✅ 新增 - 设置界面管理、配置持久化
+- **LocalDatabase** ✅ 新增 - SQLite 数据库操作（联系人、消息）
 
 #### 扩展开发建议
 
-**1. 添加注销功能**
+**1. 用户注销功能**
 ```java
-// 在 MainController 中添加菜单栏
+// 在 MainController 中添加菜单栏或按钮
 @FXML
 private void handleLogout() {
     userAgent.unregister();
+    database.close();
     // 跳转回登录界面
 }
 ```
 
-**2. 动态添加联系人**
+**2. 文件传输（点击 📎 按钮）**
 ```java
-// 创建 AddContactDialog
+// 在 MainController 中实现文件选择
 @FXML
-private void handleAddContact() {
-    TextInputDialog dialog = new TextInputDialog();
-    dialog.setTitle("添加联系人");
-    dialog.setHeaderText("输入 SIP URI");
-    Optional<String> result = dialog.showAndWait();
-    result.ifPresent(uri -> {
-        Contact contact = new Contact(extractId(uri), uri, "新联系人");
-        contacts.add(contact);
-    });
+private void handleAttachFile() {
+    FileChooser fileChooser = new FileChooser();
+    File file = fileChooser.showOpenDialog(stage);
+    if (file != null) {
+        // 通过 SIP MESSAGE 或 HTTP 发送文件
+        sendFile(file);
+    }
 }
 ```
 
-**3. 消息持久化**
+**3. 群聊功能**
 ```java
-// 集成数据库或文件存储
-private void saveMessage(Message msg) {
-    // 保存到 SQLite 或 JSON 文件
+// 扩展 Contact 模型支持群组
+public class GroupChat extends Contact {
+    private List<String> members;
+    // 实现群消息分发
 }
 ```
+
+**4. 托盘图标和通知**
 
 #### GUI 开发参考
 
@@ -685,12 +733,20 @@ A: 建议实现：
 - [x] 聊天界面（类微信气泡）
 - [x] 来电弹窗
 - [x] 通话窗口（带计时器）
+- [x] 设置界面 ✅ 新增
+- [x] 联系人管理（添加/编辑/删除/搜索）✅ 新增
+- [x] 消息搜索功能 ✅ 新增
+- [x] 表情符号支持 ✅ 新增
+- [x] 主题切换（浅色/深色）✅ 新增
+- [x] 本地数据存储（SQLite）✅ 新增
 
-### 阶段 3：数据持久化（进行中）
-- [ ] 数据库集成
-- [ ] 消息存储
-- [ ] 通话记录
-- [ ] 用户信息管理
+### 阶段 3：数据持久化（部分完成）
+- [x] SQLite 数据库集成 ✅ 客户端已完成
+- [x] 消息本地存储 ✅ 客户端已完成
+- [x] 联系人持久化 ✅ 客户端已完成
+- [ ] 服务器端数据库（MySQL/PostgreSQL）
+- [ ] 通话记录存储
+- [ ] 离线消息推送
 
 ### 阶段 4：高级功能
 - [ ] 音频采集与播放
@@ -702,9 +758,87 @@ A: 建议实现：
 
 ## 文档索引
 
-- **`QUICKSTART.md`** - 快速测试指南（详细的测试场景）
-- **`docs/guidance.md`** - 软件需求规格说明（SRS）
-- **`docs/architecture.md`** - 系统架构设计（待创建）
+### 核心文档
+- **`README.md`** - 完整项目文档（本文件）
+- **`QUICKSTART.md`** - 快速测试指南（5 分钟上手）
+- **`CHANGELOG.md`** - 版本更新历史
+
+### 归档文档（已完成的阶段性文档）
+- **`docs/archive/TASK-DISTRIBUTION.md`** - 四人团队任务分配（已完成）
+- **`docs/archive/GUI_FEATURES_COMPLETION.md`** - GUI 功能完成报告
+- **`docs/archive/GUI_TESTING_GUIDE.md`** - GUI 测试指南
+
+> 💡 **提示：** 新用户建议先阅读 [QUICKSTART.md](QUICKSTART.md)，5 分钟快速上手！
+
+---
+
+## 开发规范
+
+### 代码风格
+- 遵循 Google Java Style Guide
+- 使用 IDE 自动格式化（IntelliJ IDEA / Eclipse）
+- 变量命名采用驼峰命名法
+- 常量使用全大写下划线
+
+### Git 工作流
+```powershell
+# 创建功能分支
+git checkout -b feature/your-feature-name
+
+# 提交代码
+git add .
+git commit -m "[模块] 简短描述"
+
+# 合并到主分支
+git checkout main
+git merge feature/your-feature-name
+```
+
+### 提交信息规范
+```
+[模块] 简短描述
+
+详细说明（可选）
+
+示例：
+[GUI] 添加设置界面
+[SIP] 修复注册超时问题
+[DB] 实现消息持久化
+```
+
+---
+
+## 常见问题 (FAQ)
+
+### Q: 如何更换 SIP 服务器地址？
+A: 修改登录界面的 SIP URI，或在命令行启动脚本中更改 `serverHost` 参数。
+
+### Q: 如何添加新联系人？
+A: 
+- **GUI**: 点击左上角 ➕ 按钮，输入用户 ID
+- **CLI**: 直接发送消息到新的 SIP URI
+
+### Q: 聊天记录保存在哪里？
+A: SQLite 数据库文件 `sip_client.db`（项目根目录），可在设置中关闭保存功能。
+
+### Q: 如何切换主题？
+A: 点击 ⚙ 设置按钮 → 外观设置 → 选择"浅色"或"深色" → 保存。
+
+### Q: 音频通话为什么没有声音？
+A: 当前只实现了 SIP 信令，RTP 音频传输功能开发中（参考 CHANGELOG.md 进度）。
+
+### Q: 如何在同一台电脑测试多个客户端？
+A: 使用不同端口：
+- GUI（101）: `.\start-gui.ps1`（自动使用 5070）
+- CLI（102）: `.\start-sip-user102.ps1`（自动使用 5071）
+
+### Q: 客户端如何保持长连接？
+A: 通过 SIP REGISTER 定期刷新注册（默认 3600 秒），接收消息使用 SIP MESSAGE。
+
+### Q: 如何处理离线消息？
+A: 
+- **当前**: 客户端离线时消息丢失
+- **计划**: 服务器存储离线消息，上线后推送（成员 B 开发中）
 
 ---
 

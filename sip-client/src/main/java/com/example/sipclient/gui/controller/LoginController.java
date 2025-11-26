@@ -24,6 +24,7 @@ public class LoginController {
     @FXML private ProgressIndicator progressIndicator;
 
     private SipUserAgent userAgent;
+    private static SipUserAgent globalUserAgent; // 静态引用用于shutdown hook
 
     @FXML
     public void initialize() {
@@ -71,6 +72,21 @@ public class LoginController {
         new Thread(() -> {
             try {
                 userAgent = new SipUserAgent(sipUri, password, localIp, localPort);
+                globalUserAgent = userAgent; // 保存静态引用
+                
+                // 注册 JVM 关闭钩子
+                Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                    System.out.println("[ShutdownHook] JVM 正在关闭，强制清理 SIP 连接...");
+                    if (globalUserAgent != null) {
+                        try {
+                            globalUserAgent.shutdown();
+                            System.out.println("[ShutdownHook] SIP 连接已关闭");
+                        } catch (Exception e) {
+                            System.err.println("[ShutdownHook] 关闭失败: " + e.getMessage());
+                        }
+                    }
+                }, "SIP-Cleanup-Hook"));
+                
                 boolean success = userAgent.register(Duration.ofSeconds(10));
 
                 Platform.runLater(() -> {
@@ -104,8 +120,17 @@ public class LoginController {
 
             MainController controller = loader.getController();
             controller.setUserAgent(userAgent);
+            
+            // 保存当前 userAgent 到 scene
+            scene.setUserData(this);
 
             Stage stage = (Stage) loginButton.getScene().getWindow();
+            
+            // 添加窗口关闭事件
+            stage.setOnCloseRequest(event -> {
+                cleanup();
+            });
+            
             stage.setScene(scene);
             stage.setTitle("SIP 客户端 - " + sipUriField.getText());
             stage.setResizable(true);
@@ -115,6 +140,28 @@ public class LoginController {
         } catch (Exception e) {
             e.printStackTrace();
             showError("打开主界面失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 清理资源
+     */
+    public void cleanup() {
+        System.out.println("[LoginController] 开始清理资源...");
+        if (userAgent != null) {
+            try {
+                System.out.println("[LoginController] 正在关闭 SIP 连接（包括注销）...");
+                userAgent.shutdown();
+                Thread.sleep(200); // 等待注销消息发送和端口释放
+                userAgent = null;
+                globalUserAgent = null;
+                System.out.println("[LoginController] SIP 连接已关闭，资源已释放");
+            } catch (Exception e) {
+                System.err.println("[LoginController] 关闭 SIP 连接失败: " + e.getMessage());
+                e.printStackTrace();
+            }
+        } else {
+            System.out.println("[LoginController] 没有需要清理的 SIP 连接");
         }
     }
 }

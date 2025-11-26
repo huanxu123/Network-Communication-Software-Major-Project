@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<VBox xmlns="http://javafx.com/javafx"
+      xmlns:fx="http://javafx.com/fxml"
+      fx:controller="com.example.sipclient.gui.controller.SettingsController"
+      prefWidth="500" prefHeight="600"
+      spacing="10" style="-fx-background-color: white;">
+    
+    <padding>
+        <Insets top="20" right="20" bottom="20" left="20"/>
+    </padding>
+    
+    <!-- 标题 -->
+    <Label text="设置" style="-fx-font-size: 24px; -fx-font-weight: bold;"/>
+    <Separator/>
+    
+    <!-- 通知设置 -->
+    <VBox spacing="10">
+        <Label text="通知设置" style="-fx-font-size: 16px; -fx-font-weight: bold;"/>
+        <CheckBox fx:id="notificationCheckBox" text="启用桌面通知"/>
+        <CheckBox fx:id="soundCheckBox" text="启用提示音"/>
+    </VBox>
+    
+    <Separator/>
+    
+    <!-- 音频设置 -->
+    <VBox spacing="10">
+        <Label text="音频设置" style="-fx-font-size: 16px; -fx-font-weight: bold;"/>
+        
+        <HBox spacing="10" alignment="CENTER_LEFT">
+            <Label text="音量:"/>
+            <Slider fx:id="volumeSlider" prefWidth="200" min="0" max="100" value="80"/>
+            <Label fx:id="volumeLabel" text="80%" prefWidth="50"/>
+        </HBox>
+        
+        <HBox spacing="10" alignment="CENTER_LEFT">
+            <Label text="音频设备:"/>
+            <ComboBox fx:id="audioDeviceComboBox" prefWidth="200"/>
+        </HBox>
+    </VBox>
+    
+    <Separator/>
+    
+    <!-- 其他设置 -->
+    <VBox spacing="10">
+        <Label text="其他设置" style="-fx-font-size: 16px; -fx-font-weight: bold;"/>
+        <CheckBox fx:id="autoStartCheckBox" text="开机自动启动"/>
+        <CheckBox fx:id="saveHistoryCheckBox" text="保存聊天记录"/>
+    </VBox>
+    
+    <!-- 填充空间 -->
+    <Region VBox.vgrow="ALWAYS"/>
+    
+    <!-- 按钮区域 -->
+    <HBox spacing="10" alignment="CENTER_RIGHT">
+        <Button text="重置" onAction="#handleReset" 
+                style="-fx-background-color: #f44336; -fx-text-fill: white; -fx-padding: 10 20;"/>
+        <Button fx:id="cancelButton" text="取消" onAction="#handleCancel"
+                style="-fx-background-color: #9e9e9e; -fx-text-fill: white; -fx-padding: 10 20;"/>
+        <Button fx:id="saveButton" text="保存" onAction="#handleSave"
+                style="-fx-background-color: #4caf50; -fx-text-fill: white; -fx-padding: 10 20;"/>
+    </HBox>
+</VBox>

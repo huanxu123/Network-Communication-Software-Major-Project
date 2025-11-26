@@ -7,10 +7,12 @@ D:\net_communication\projects\Project\sip-client\src\main\java\com\example\sipcl
 D:\net_communication\projects\Project\sip-client\src\main\java\com\example\sipclient\gui\model\Message.java
 D:\net_communication\projects\Project\sip-client\src\main\java\com\example\sipclient\gui\controller\MainController.java
 D:\net_communication\projects\Project\sip-client\src\main\java\com\example\sipclient\gui\SipClientApp.java
+D:\net_communication\projects\Project\sip-client\src\main\java\com\example\sipclient\gui\storage\LocalDatabase.java
 D:\net_communication\projects\Project\sip-client\src\main\java\com\example\sipclient\ui\QuickStartUser101.java
 D:\net_communication\projects\Project\sip-client\src\main\java\com\example\sipclient\SipClientApplication.java
 D:\net_communication\projects\Project\sip-client\src\main\java\com\example\sipclient\chat\MessageHandler.java
 D:\net_communication\projects\Project\sip-client\src\main\java\com\example\sipclient\gui\controller\IncomingCallController.java
+D:\net_communication\projects\Project\sip-client\src\main\java\com\example\sipclient\gui\controller\SettingsController.java
 D:\net_communication\projects\Project\sip-client\src\main\java\com\example\sipclient\call\CallManager.java
 D:\net_communication\projects\Project\sip-client\src\main\java\com\example\sipclient\ui\ConsoleMain.java
 D:\net_communication\projects\Project\sip-client\src\main\java\com\example\sipclient\ui\QuickStartUser102.java
