@@ -7,39 +7,27 @@ import java.net.*;
 
 /**
  * 成员 A 实现的真实音频会话
- * 实现了 RTP 音频采集与播放
+ * 版本：Little Endian 修正版 (解决杂音问题)
  */
 public class AudioSession implements MediaSession {
 
     private static final Logger log = LoggerFactory.getLogger(AudioSession.class);
 
-    // 控制开关
     private volatile boolean running = false;
-
-    // 网络与音频组件
     private DatagramSocket socket;
-    private final AudioFormat format = new AudioFormat(8000, 16, 1, true, true); // 8k采样, 16位, 单声道
 
-    // 对方的地址信息
+    // ⚠️ [修改点1] 改为 false (使用 Little Endian 小端序)，适配大多数 PC 声卡
+    // 参数：8000Hz, 16bit, 单声道, 有符号, 小端序(false)
+    private final AudioFormat format = new AudioFormat(8000, 16, 1, true, false);
+
     private String remoteIp;
     private int remotePort;
 
-    /**
-     * 这是接口要求的默认启动方法。
-     * 但因为没有对方IP，我们没法在这里真正启动通话。
-     * 所以留空或打印提示。
-     */
     @Override
     public void start() {
         log.warn("请调用带参数的 start(ip, port, localPort) 来启动真实通话");
     }
 
-    /**
-     * ✅ 这是你需要调用的真实启动方法
-     * @param targetIp 对方IP
-     * @param targetPort 对方端口
-     * @param localPort 本地监听端口
-     */
     public void start(String targetIp, int targetPort, int localPort) {
         if (running) return;
         this.remoteIp = targetIp;
@@ -47,14 +35,10 @@ public class AudioSession implements MediaSession {
         this.running = true;
 
         try {
-            // 1. 准备网络
             socket = new DatagramSocket(localPort);
-            log.info("音频会话启动，本地端口: {}, 目标: {}:{}", localPort, targetIp, targetPort);
+            log.info("音频会话启动 (Little Endian)，本地: {}, 目标: {}:{}", localPort, targetIp, targetPort);
 
-            // 2. 开启发送线程（麦克风 -> 网络）
             new Thread(this::captureAndSend, "Audio-Sender").start();
-
-            // 3. 开启接收线程（网络 -> 扬声器）
             new Thread(this::receiveAndPlay, "Audio-Receiver").start();
 
         } catch (SocketException e) {
@@ -67,19 +51,17 @@ public class AudioSession implements MediaSession {
     public void stop() {
         if (!running) return;
         running = false;
-
         if (socket != null && !socket.isClosed()) {
             socket.close();
         }
         log.info("音频会话已停止");
     }
 
-
     public boolean isRunning() {
         return running;
     }
 
-    // --- 内部逻辑：采集麦克风并发送 ---
+    // --- 发送逻辑 ---
     private void captureAndSend() {
         try {
             DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
@@ -87,14 +69,26 @@ public class AudioSession implements MediaSession {
             mic.open(format);
             mic.start();
 
-            byte[] buffer = new byte[1024];
+            byte[] pcmBuffer = new byte[1024];
             InetAddress address = InetAddress.getByName(remoteIp);
 
             log.info("麦克风已开启...");
             while (running) {
-                int bytesRead = mic.read(buffer, 0, buffer.length);
+                int bytesRead = mic.read(pcmBuffer, 0, pcmBuffer.length);
                 if (bytesRead > 0) {
-                    DatagramPacket packet = new DatagramPacket(buffer, bytesRead, address, remotePort);
+                    byte[] compressedBuffer = new byte[bytesRead / 2];
+
+                    for (int i = 0; i < bytesRead / 2; i++) {
+                        // ⚠️ [修改点2] 小端序拼装：低位在前(2*i)，高位在后(2*i+1)
+                        int low = pcmBuffer[2 * i];
+                        int high = pcmBuffer[2 * i + 1];
+                        // 拼成 16bit 样本
+                        short sample = (short) ((high << 8) | (low & 0xFF));
+
+                        compressedBuffer[i] = G711.linear2ulaw(sample);
+                    }
+
+                    DatagramPacket packet = new DatagramPacket(compressedBuffer, compressedBuffer.length, address, remotePort);
                     socket.send(packet);
                 }
             }
@@ -104,7 +98,7 @@ public class AudioSession implements MediaSession {
         }
     }
 
-    // --- 内部逻辑：接收网络数据并播放 ---
+    // --- 接收逻辑 ---
     private void receiveAndPlay() {
         try {
             DataLine.Info info = new DataLine.Info(SourceDataLine.class, format);
@@ -112,16 +106,27 @@ public class AudioSession implements MediaSession {
             speaker.open(format);
             speaker.start();
 
-            byte[] buffer = new byte[1024];
-            DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+            byte[] compressedBuffer = new byte[512];
+            DatagramPacket packet = new DatagramPacket(compressedBuffer, compressedBuffer.length);
 
             log.info("扬声器已就绪...");
             while (running) {
                 try {
                     socket.receive(packet);
-                    speaker.write(packet.getData(), 0, packet.getLength());
+
+                    int len = packet.getLength();
+                    byte[] pcmData = new byte[len * 2];
+
+                    for (int i = 0; i < len; i++) {
+                        short sample = G711.ulaw2linear(compressedBuffer[i]);
+
+                        // ⚠️ [修改点3] 小端序拆分：先存低位，再存高位
+                        pcmData[2 * i] = (byte) (sample & 0xFF);        // 低位
+                        pcmData[2 * i + 1] = (byte) ((sample >> 8) & 0xFF); // 高位
+                    }
+
+                    speaker.write(pcmData, 0, pcmData.length);
                 } catch (SocketException e) {
-                    // Socket关闭时会抛出此异常，正常退出即可
                     break;
                 }
             }
