@@ -1,25 +1,45 @@
 package com.example.admin.controller;
 
-import com.example.admin.entity.UserSummary;
+import com.example.admin.entity.User;
 import com.example.admin.service.UserService;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/users")
 public class UserController {
 
-    private final UserService userService;
+    @Autowired
+    private UserService userService;
 
-    public UserController(UserService userService) {
-        this.userService = userService;
+    // 注册接口
+    @PostMapping("/register")
+    public ResponseEntity<?> register(@RequestBody Map<String, String> params) {
+        try {
+            User user = userService.register(
+                    params.get("username"),
+                    params.get("password"),
+                    params.get("nickname")
+            );
+            return ResponseEntity.ok("注册成功，ID: " + user.getId());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
-    @GetMapping
-    public List<UserSummary> listUsers() {
-        return userService.listUsers();
+    // 登录接口
+    @PostMapping("/login")
+    public ResponseEntity<?> login(@RequestBody Map<String, String> params) {
+        User user = userService.login(
+                params.get("username"),
+                params.get("password")
+        );
+        if (user != null) {
+            return ResponseEntity.ok(user);
+        }
+        return ResponseEntity.status(401).body("登录失败");
     }
 }
