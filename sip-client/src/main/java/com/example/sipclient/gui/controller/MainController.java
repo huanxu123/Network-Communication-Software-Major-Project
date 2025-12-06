@@ -291,7 +291,7 @@ public class MainController {
             Scene scene = new Scene(loader.load());
             
             CallController controller = loader.getController();
-            controller.setCallInfo(contact, userAgent, callManager);
+            controller.setCallInfo(contact, userAgent, callManager, false); // false表示是发起方
             
             Stage stage = new Stage();
             stage.setScene(scene);
