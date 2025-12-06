@@ -1,28 +1,24 @@
 package com.example.admin.repository;
 
 import com.example.admin.entity.CallRecord;
-import com.example.admin.entity.UserSummary;
 import org.springframework.stereotype.Repository;
 
-import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 @Repository
 public class InMemoryStore {
 
-    private final CopyOnWriteArrayList<UserSummary> users = new CopyOnWriteArrayList<>(List.of(
-            new UserSummary("alice", "Alice", true),
-            new UserSummary("bob", "Bob", false),
-            new UserSummary("carol", "Carol", true)
-    ));
+    // 队友原本想在这里造假数据，但现在我们有真数据库了，
+    // 这些假数据格式不对会报错，所以我们直接把它们变成“空列表”。
 
-    private final CopyOnWriteArrayList<CallRecord> calls = new CopyOnWriteArrayList<>(List.of(
-            new CallRecord("c-1", "sip:alice@example.com", "sip:bob@example.com", "COMPLETED", Instant.now().minusSeconds(600)),
-            new CallRecord("c-2", "sip:carol@example.com", "sip:dan@example.com", "IN_PROGRESS", Instant.now().minusSeconds(120))
-    ));
+    // 如果这一行报错找不到 UserSummary，你可以把它整行删掉，通常没影响
+    private final List<Object> users = Collections.emptyList();
 
-    public List<UserSummary> users() {
+    // 这里的 CallRecord 假数据和你的真图纸冲突了，直接清空
+    private final List<CallRecord> calls = Collections.emptyList();
+
+    public List<Object> users() {
         return users;
     }
 
